@@ -181,7 +181,7 @@ function M:Update()
 end
 
 local function IconVisible(b)
-    return b:Cfg().enabled and not ns.HiddenForTravel() and not ns.IsDead()
+    return b:Cfg().enabled and not ns.Hidden(b.key, b.state) and not ns.IsDead()
 end
 
 -- Hidden health: the icon and the zone highlights show by curves (the state stays as it was). The health can
@@ -212,7 +212,7 @@ end
 -- Without the spell: the zone's warning on screen, with the health while it's readable.
 function M:UpdateWarning(noSpell, byCurve)
     local cfg, f = Cfg(), self.warning
-    local on = noSpell and cfg.enabled and cfg.text.enabled and not ns.HiddenForTravel() and not ns.IsDead()
+    local on = noSpell and cfg.enabled and cfg.text.enabled and not ns.Hidden(ns.HideScope.HEALTH_FUNNEL) and not ns.IsDead()
     byCurve = byCurve and on
     -- Preview: a sample of the warning zone to place the text.
     local sample = ns.db.preview and noSpell and cfg.enabled and not (on and (self.zone or byCurve))

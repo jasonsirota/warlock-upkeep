@@ -90,7 +90,7 @@ function M:Update()
     if self.expires and GetTime() >= self.expires then self:Expire() end
     local preview = ns.db.preview and not self.expires
     self.previewStart = preview and (self.previewStart or GetTime()) or nil
-    if not cfg.enabled or not (self.expires or preview) or ns.HiddenForTravel() then
+    if not cfg.enabled or not (self.expires or preview) or ns.Hidden(ns.HideScope.ENSLAVE) then
         self.frame:Hide()
         return
     end

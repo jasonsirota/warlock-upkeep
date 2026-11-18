@@ -534,8 +534,13 @@ function BuildContent()
     Check("Show minimap button", function() return not ns.db.minimap.hide end, function(v) ns.db.minimap.hide = not v end)
     Check("Lock minimap button position", function() return ns.db.minimap.locked end, function(v) ns.db.minimap.locked = v end)
     Select("Move icons with", ns.GetMoveModes, function() return ns.db.moveWith end, function(v) ns.db.moveWith = v end)
-    Check("Hide all icons while on a flight path", function() return ns.db.hideOnTaxi end, function(v) ns.db.hideOnTaxi = v end)
-    Check("Hide all icons while mounted", function() return ns.db.hideOnMount end, function(v) ns.db.hideOnMount = v end)
+    local function HideCheck(text, state)
+        local G = ns.HideScope.GLOBAL
+        Check(text, function() return ns.db[ns.HIDDEN_STATES][G][state] end, function(v) ns.SetHideSetting(G, state, v) end)
+    end
+    HideCheck("Hide all icons while on a flight path", ns.HideState.TAXI)
+    HideCheck("Hide all icons while mounted", ns.HideState.MOUNTED)
+    HideCheck("Hide all icons while resting (in a city or inn, not in combat)", ns.HideState.RESTING)
     if ns.modules.shards then
         Note("These also hide the Soulstone label and the Soul Shard counter. The counter can stay on screen: " ..
             "see \"Keep showing on a mount or flight path\" in its section.")
@@ -665,7 +670,19 @@ function BuildContent()
         Header("Soul Shard counter", "Interface\\Icons\\INV_Misc_Gem_Amethyst_02")
         Check("Enable", function() return sh().enabled end, function(v) sh().enabled = v end)
         Check("Lock position", function() return sh().locked end, function(v) sh().locked = v end)
-        Check("Keep showing on a mount or flight path", function() return sh().keepOnTravel end, function(v) sh().keepOnTravel = v end)
+        -- The only override the options write: the counter's own setting for a flight path and a mount.
+        -- Checked keeps it on screen there whatever the global setting; unchecked follows the global one.
+        local travel = { ns.HideState.TAXI, ns.HideState.MOUNTED }
+        Check("Keep showing on a mount or flight path",
+            function()
+                for _, state in ipairs(travel) do
+                    if ns.HideSetting(state, ns.HideScope.SHARDS) ~= false then return false end
+                end
+                return true
+            end,
+            function(v)
+                for _, state in ipairs(travel) do ns.SetHideSetting(ns.HideScope.SHARDS, state, v and false or nil) end
+            end)
         Check("Show shard icon", function() return sh().showIcon end, function(v) sh().showIcon = v end)
         Slider("Icon size", 12, 96, 1, function() return sh().iconSize end, function(v) sh().iconSize = v end)
         Slider("Background opacity, %", 0, 100, 5, function() return math.floor(sh().bgAlpha * 100 + 0.5) end, function(v) sh().bgAlpha = v / 100 end)

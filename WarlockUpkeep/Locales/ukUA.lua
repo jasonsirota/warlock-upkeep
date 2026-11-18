@@ -177,6 +177,7 @@ ns.LOCALES.ukUA = {
     ["Move icons with"] = "Чим пересувати іконки",
     ["Hide all icons while on a flight path"] = "Ховати всі іконки під час польоту",
     ["Hide all icons while mounted"] = "Ховати всі іконки, поки ви на маунті",
+    ["Hide all icons while resting (in a city or inn, not in combat)"] = "Ховати всі іконки під час відпочинку (в місті чи таверні, крім бою)",
     ["These also hide the Soulstone label and the Soul Shard counter. The counter can stay on screen: " ..
         "see \"Keep showing on a mount or flight path\" in its section."] =
         "Ці опції ховають також мітку Каменя душі та лічильник уламків душ. Лічильник можна лишити на екрані: " ..

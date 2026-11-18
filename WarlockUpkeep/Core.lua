@@ -6,6 +6,28 @@ ns.modules = {}
 ns.icons = {}
 ns.ready = false
 
+-- Hiding by state (see ns.Hidden). db[ns.HIDDEN_STATES][scope][state] is true when a frame hides in a state.
+-- An icon can override it per icon state, nested the way icons keep their per-state settings:
+-- db[ns.HIDDEN_STATES][scope][ns.HIDE_ICON_STATES][iconState][state].
+ns.HIDDEN_STATES = "hiddenStates"
+ns.HIDE_ICON_STATES = "states"
+-- The states that can hide the display.
+ns.HideState = { TAXI = "taxi", MOUNTED = "mounted", RESTING = "resting" }
+-- GLOBAL is the base every frame inherits; the others are frames, named by their keys in ns.db (icons use
+-- their own key, so the icon names here match the keys of ns.defaults). An entry in a frame's table
+-- overrides GLOBAL for that frame; a missing one inherits.
+ns.HideScope = {
+    GLOBAL = "global",
+    -- Icons
+    ARMOR = "armor", HEALTHSTONE = "healthstone", WEAPON_STONE = "weaponStone", SOULSTONE = "soulstone",
+    PET = "pet", HEALTH_FUNNEL = "healthFunnel", NIGHTFALL = "nightfall",
+    -- Other frames
+    ENSLAVE = "enslave", SHARDS = "shards", SOULSTONE_LABEL = "soulstoneLabel",
+    SUMMON = "summon", SUMMON_SELL = "summonSell",
+}
+-- Settings from before db.hiddenStates.
+local LEGACY = { HIDE_ON_TAXI = "hideOnTaxi", HIDE_ON_MOUNT = "hideOnMount", KEEP_SHARDS_ON_TRAVEL = "keepOnTravel" }
+
 local L = ns.L
 local L_PREFIX = "|cff9482c9WarlockUpkeep!|r: "
 function ns.Print(...) print(L_PREFIX .. string.format(...)) end
@@ -36,8 +58,10 @@ ns.defaults = {
     -- Opacity of all addon frames in / out of combat; click-through in combat.
     combat = { clickThrough = false, alpha = 1, idleAlpha = 1, glow = true, hide = false },
     minimap = { hide = false, locked = false, angle = 215 },
-    hideOnTaxi = false, -- hide all icons during a flight path
-    hideOnMount = false, -- hide all icons while mounted
+    -- Hide all icons (and the label, counter and windows) in a state, unless a frame overrides it.
+    [ns.HIDDEN_STATES] = {
+        [ns.HideScope.GLOBAL] = { [ns.HideState.TAXI] = false, [ns.HideState.MOUNTED] = false, [ns.HideState.RESTING] = false },
+    },
     grimoires = { merchant = true, tooltip = true }, -- mark grimoires the demons already know
     customSounds = {}, -- { name = "alarm", path = "Interface\\WarlockUpkeepSounds\\alarm.ogg" }
     armor = Icon(-135, 160),
@@ -178,7 +202,6 @@ ns.defaults = {
         font = "Fonts\\FRIZQT__.TTF", fontSize = 20, outline = "OUTLINE",
         color = { 1, 1, 1, 1 }, lowColor = { 1, 0.25, 0.25, 1 }, edgeColor = { 1, 0.82, 0, 1 },
         showThreshold = false, -- "have/threshold" instead of just "have"
-        keepOnTravel = true, -- stays on screen when hideOnTaxi / hideOnMount hide the rest
         autoThreshold = true, threshold = 3,
         spare = 1, includeRitual = false,
         glow = true, glowColor = { 1, 0.2, 0.2, 1 }, edgeGlowColor = { 1, 0.82, 0, 1 },
@@ -201,10 +224,27 @@ function ns.CopyDefaults(src, dst)
     return dst
 end
 
+-- Moves hideOnTaxi, hideOnMount and shards.keepOnTravel into db.hiddenStates. A profile without it gets the
+-- Soul Shard counter staying on screen on a flight path and a mount, as keepOnTravel did by default.
+function ns.MigrateHiddenStates(db)
+    local S, Scope = ns.HideState, ns.HideScope
+    if type(db[ns.HIDDEN_STATES]) ~= "table" then
+        local hs = { [Scope.GLOBAL] = { [S.TAXI] = db[LEGACY.HIDE_ON_TAXI] == true, [S.MOUNTED] = db[LEGACY.HIDE_ON_MOUNT] == true } }
+        local shards = db[Scope.SHARDS]
+        if not (type(shards) == "table" and shards[LEGACY.KEEP_SHARDS_ON_TRAVEL] == false) then
+            hs[Scope.SHARDS] = { [S.TAXI] = false, [S.MOUNTED] = false }
+        end
+        db[ns.HIDDEN_STATES] = hs
+    end
+    db[LEGACY.HIDE_ON_TAXI], db[LEGACY.HIDE_ON_MOUNT] = nil, nil
+    if type(db[Scope.SHARDS]) == "table" then db[Scope.SHARDS][LEGACY.KEEP_SHARDS_ON_TRAVEL] = nil end
+end
+
 -- Resets the current profile.
 function ns:ResetDB()
     local locale = self.db.locale -- the language survives a reset
     wipe(self.db)
+    ns.MigrateHiddenStates(self.db)
     ns.CopyDefaults(self.defaults, self.db)
     self.db.locale = locale
     self:ApplyAll()
@@ -804,26 +844,85 @@ ns:RegisterEvent("PLAYER_REGEN_ENABLED", function()
     ns:ApplyAll()
 end)
 
--- Taking off and landing on a flight path.
-ns:RegisterEvent("PLAYER_CONTROL_LOST", function() ns:ScheduleUpdate() end)
-ns:RegisterEvent("PLAYER_CONTROL_GAINED", function() ns:ScheduleUpdate() end)
-
 function ns.OnTaxi()
     return UnitOnTaxi and ns.Bool(UnitOnTaxi, "player") or false
 end
-
--- Getting on and off a mount.
-ns:RegisterEvent("PLAYER_MOUNT_DISPLAY_CHANGED", function() ns:ScheduleUpdate() end)
 
 function ns.Mounted()
     return IsMounted and ns.Bool(IsMounted) or false
 end
 
--- Everything (icons, Soulstone label, shard counter unless kept) is hidden on a flight path or a mount
--- by the options. A flight path follows its own option, also where it counts as being mounted.
-function ns.HiddenForTravel()
-    if ns.OnTaxi() then return ns.db.hideOnTaxi end
-    return ns.db.hideOnMount and ns.Mounted()
+function ns.Resting()
+    return IsResting and ns.Bool(IsResting) or false
+end
+
+-- The states that can hide the display. state: a ns.HideState. active: whether the player is in it now.
+-- A new state is a new ns.HideState, a new entry here and a new key in the GLOBAL defaults.
+ns.hideStates = {
+    -- Resting never hides in combat.
+    { state = ns.HideState.RESTING, active = function() return not ns.inCombat and ns.Resting() end },
+    { state = ns.HideState.TAXI, active = ns.OnTaxi },
+    -- A flight path follows its own setting, also where it counts as being mounted.
+    { state = ns.HideState.MOUNTED, active = function() return ns.Mounted() and not ns.OnTaxi() end },
+}
+
+-- Events that can change a state; each one re-runs UpdateAll.
+for _, event in ipairs({
+    "PLAYER_UPDATE_RESTING",        -- entering and leaving a city or inn
+    "PLAYER_CONTROL_LOST",          -- taking off on a flight path
+    "PLAYER_CONTROL_GAINED",        -- landing
+    "PLAYER_MOUNT_DISPLAY_CHANGED", -- getting on and off a mount
+}) do
+    ns:RegisterEvent(event, function() ns:ScheduleUpdate() end)
+end
+
+-- The setting for a state as stored: the icon state's entry first, then the frame's, then GLOBAL.
+-- nil entries inherit. scope: a ns.HideScope; iconState: an icon's current state.
+function ns.HideSetting(state, scope, iconState)
+    local hs = ns.db[ns.HIDDEN_STATES]
+    local frame = hs[scope]
+    local t = frame and iconState and frame[ns.HIDE_ICON_STATES] and frame[ns.HIDE_ICON_STATES][iconState]
+    if t and t[state] ~= nil then return t[state] end
+    if frame and frame[state] ~= nil then return frame[state] end
+    return hs[ns.HideScope.GLOBAL][state]
+end
+
+-- Writes one entry, for an icon state when iconState is given. value nil removes it, so it inherits again,
+-- and tables left empty go with it (GLOBAL stays).
+function ns.SetHideSetting(scope, state, value, iconState)
+    local hs = ns.db[ns.HIDDEN_STATES]
+    local frame = hs[scope]
+    if value == nil then
+        if not frame then return end
+        local icons = frame[ns.HIDE_ICON_STATES]
+        if iconState then
+            if icons and icons[iconState] then
+                icons[iconState][state] = nil
+                if next(icons[iconState]) == nil then icons[iconState] = nil end
+                if next(icons) == nil then frame[ns.HIDE_ICON_STATES] = nil end
+            end
+        else
+            frame[state] = nil
+        end
+        if scope ~= ns.HideScope.GLOBAL and next(frame) == nil then hs[scope] = nil end
+        return
+    end
+    if type(frame) ~= "table" then frame = {}; hs[scope] = frame end
+    local t = frame
+    if iconState then
+        if type(frame[ns.HIDE_ICON_STATES]) ~= "table" then frame[ns.HIDE_ICON_STATES] = {} end
+        if type(frame[ns.HIDE_ICON_STATES][iconState]) ~= "table" then frame[ns.HIDE_ICON_STATES][iconState] = {} end
+        t = frame[ns.HIDE_ICON_STATES][iconState]
+    end
+    t[state] = value
+end
+
+-- Whether a frame is hidden right now. Read live: a few API calls, on events and a 1 s tick.
+function ns.Hidden(scope, iconState)
+    for _, h in ipairs(ns.hideStates) do
+        if h.active() and ns.HideSetting(h.state, scope, iconState) then return true end
+    end
+    return false
 end
 
 -- Dying, releasing the spirit and coming back to life.

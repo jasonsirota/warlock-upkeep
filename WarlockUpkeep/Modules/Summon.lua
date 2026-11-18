@@ -368,7 +368,7 @@ function M:Refresh()
     local f, cfg = self.frame, Cfg()
     local known = ns.IsKnown(D.ritualOfSummoning)
     local list, sample = self:Rows()
-    if not cfg.enabled or (not known and not sample) or #list == 0 or ns.HiddenForTravel() then
+    if not cfg.enabled or (not known and not sample) or #list == 0 or ns.Hidden(ns.HideScope.SUMMON) then
         f:Hide()
         return
     end

@@ -353,7 +353,7 @@ function M:Refresh()
     if not f then return end
     -- Shown while selling (once Ritual of Summoning is learned), and in preview for positioning.
     local on = cfg.enabled and ns.IsKnown(D.ritualOfSummoning) or ns.db.preview
-    if not on or ns.HiddenForTravel() then
+    if not on or ns.Hidden(ns.HideScope.SUMMON_SELL) then
         f:Hide()
         return
     end

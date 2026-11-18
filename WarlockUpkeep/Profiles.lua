@@ -24,6 +24,7 @@ function ns.SelectProfile(name)
     name = (type(name) == "string" and name ~= "") and name or DEFAULT
     local p = Profiles()
     if type(p[name]) ~= "table" then p[name] = {} end
+    ns.MigrateHiddenStates(p[name])
     ns.CopyDefaults(ns.defaults, p[name])
     ns.cdb.profile = name
     ns.db = p[name]
@@ -144,7 +145,32 @@ local function Clean(src, defaults)
     local out = {}
     for k, v in pairs(src) do
         local d = defaults and defaults[k]
-        if d == nil then
+        if k == ns.HIDDEN_STATES and type(v) == "table" and defaults == ns.defaults then
+            -- Frames are named in it and aren't in the defaults: keep the boolean entries, also per icon state.
+            local function Booleans(t)
+                local b = {}
+                for state, on in pairs(t) do
+                    if type(state) == "string" and type(on) == "boolean" then b[state] = on end
+                end
+                return b
+            end
+            local hs = {}
+            for scope, t in pairs(v) do
+                if type(scope) == "string" and type(t) == "table" then
+                    hs[scope] = Booleans(t)
+                    local icons = t[ns.HIDE_ICON_STATES]
+                    if type(icons) == "table" then
+                        hs[scope][ns.HIDE_ICON_STATES] = {}
+                        for iconState, st in pairs(icons) do
+                            if type(iconState) == "string" and type(st) == "table" then
+                                hs[scope][ns.HIDE_ICON_STATES][iconState] = Booleans(st)
+                            end
+                        end
+                    end
+                end
+            end
+            out[k] = hs
+        elseif d == nil then
             if defaults == nil or type(k) == "number" or next(defaults) == nil then out[k] = v end
         elseif type(d) == type(v) then
             out[k] = type(v) == "table" and Clean(v, d) or v
@@ -160,6 +186,7 @@ function ns.ImportProfile(text)
     local ok, t, pos = pcall(Parse, text, #PREFIX + 1)
     if not ok then return false, tostring(t) end
     if type(t) ~= "table" then return false, tostring(pos) end
+    ns.MigrateHiddenStates(t) -- also reads strings exported before hiddenStates
     local clean = Clean(t, ns.defaults)
     wipe(ns.db)
     for k, v in pairs(clean) do ns.db[k] = v end

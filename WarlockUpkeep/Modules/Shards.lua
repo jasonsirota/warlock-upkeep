@@ -175,8 +175,8 @@ function M:Update()
         self.low = nil
         return
     end
-    -- Hidden with the icons on a flight path or a mount, unless kept on screen.
-    if ns.HiddenForTravel() and not cfg.keepOnTravel then
+    -- Hidden with the icons, unless kept on screen in the current state (see ns.HideScope.SHARDS).
+    if ns.Hidden(ns.HideScope.SHARDS) then
         f:Hide()
         return
     end
